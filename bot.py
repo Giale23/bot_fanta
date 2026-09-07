@@ -1,13 +1,26 @@
 import telebot
 import re
 import asyncio
+import requests
+import os
+import threading
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
-import os
+from flask import Flask
 
+# 1. WEBSERVER DUMMY PER KEEP-ALIVE RENDER (EVITA PORT TIMEOUT)
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot Fantacalcio Online 24/7!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
+
+# 2. TOKEN E ROSA
 TOKEN = os.environ.get("TELEGRAM_TOKEN", "8458455550:AAGiOW1l2kI0q8iCAeF8CIVKp1cmS9hHgJo")
-
-# 1. TOKEN E ROSA
 bot = telebot.TeleBot(TOKEN)
 
 mia_rosa = {
@@ -17,6 +30,7 @@ mia_rosa = {
     "A": ["Kean", "Douvikas", "Simeone", "Adams A", "Diao", "Varela G"]
 }
 
+# LINK DIRETTI COMPLETI PER TUTTI I GIOCATORI
 URL_SCHEDE_GIOCATORI = {
     # Portieri
     "Maignan": "https://www.fantacalcio.it/serie-a/squadre/milan/maignan/4312",
@@ -55,7 +69,7 @@ URL_SCHEDE_GIOCATORI = {
 INFORTUNATI_EXPLICITI = ["Varela G"]
 SQUALIFICATI_EXPLICITI = []
 
-# 2. SCRAPING INTEGRATO PLAYWRIGHT (PROBABILI + SCHEDE GIOCATORI)
+# 3. SCRAPING INTEGRATO PLAYWRIGHT (PROBABILI + SCHEDE GIOCATORI)
 async def scarica_dati_live_playwright():
     percentuali = {}
     stati_speciali = {}
@@ -111,7 +125,6 @@ async def scarica_dati_live_playwright():
                     soup_s = BeautifulSoup(html_scheda, 'html.parser')
                     txt = soup_s.get_text()
 
-                    # Cerca il valore numerico vicino alla dicitura FM/FantaMedia
                     match = re.search(r'FM[\s\n\r]*(\d{1,2}[\.,]\d{1,2})', txt, re.I) or \
                             re.search(r'(\d{1,2}[\.,]\d{1,2})[\s\n\r]*FM', txt, re.I)
 
@@ -129,7 +142,7 @@ async def scarica_dati_live_playwright():
 
     return percentuali, stati_speciali, fantamedia
 
-# 3. COMANDO /formazione
+# 4. COMANDO /formazione
 @bot.message_handler(commands=['formazione'])
 def consiglia_formazione(message):
     bot.reply_to(message, "Estrazione Live: Probabili % + FM da schede... 🎯")
@@ -242,4 +255,10 @@ def consiglia_formazione(message):
 
     bot.send_message(message.chat.id, risposta, parse_mode="Markdown")
 
-bot.infinity_polling()
+# 5. AVVIO MULTI-THREADING (FLASK SERVER + TELEGRAM BOT)
+if __name__ == "__main__":
+    t = threading.Thread(target=run_flask)
+    t.daemon = True
+    t.start()
+    
+    bot.infinity_polling()
