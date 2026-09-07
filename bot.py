@@ -76,7 +76,6 @@ async def scarica_dati_live_playwright():
     fantamedia = {g: 6.0 for ruolo in mia_rosa for g in mia_rosa[ruolo]}
 
     async with async_playwright() as p:
-        # Avvio browser con flag per contenere le risorse in ambiente Docker
         browser = await p.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
@@ -125,7 +124,6 @@ async def scarica_dati_live_playwright():
                     continue
 
                 try:
-                    # Timeout a 5 secondi per singola pagina per velocizzare ed evitare blocchi
                     await page.goto(url, wait_until="domcontentloaded", timeout=5000)
                     html_scheda = await page.content()
                     soup_s = BeautifulSoup(html_scheda, 'html.parser')
@@ -261,10 +259,10 @@ def consiglia_formazione(message):
 
     bot.send_message(message.chat.id, risposta, parse_mode="Markdown")
 
-# 5. AVVIO MULTI-THREADING (FLASK SERVER + TELEGRAM BOT)
+# 5. AVVIO MULTI-THREADING (FLASK SERVER + TELEGRAM BOT ANTI-CONFLITTO)
 if __name__ == "__main__":
     t = threading.Thread(target=run_flask)
     t.daemon = True
     t.start()
     
-    bot.infinity_polling()
+    bot.infinity_polling(skip_pending=True)
