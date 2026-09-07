@@ -76,14 +76,20 @@ async def scarica_dati_live_playwright():
     fantamedia = {g: 6.0 for ruolo in mia_rosa for g in mia_rosa[ruolo]}
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        # Avvio browser con flag per contenere le risorse in ambiente Docker
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+        )
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
         page = await context.new_page()
 
         # A. SCRAPING PROBABILI FORMAZIONI
         try:
-            await page.goto("https://www.fantamaster.it/probabili-formazioni-serie-a-live/", wait_until="domcontentloaded", timeout=20000)
-            await page.wait_for_timeout(2000)
+            await page.goto("https://www.fantamaster.it/probabili-formazioni-serie-a-live/", wait_until="domcontentloaded", timeout=15000)
+            await page.wait_for_timeout(1000)
             content_prob = await page.content()
             soup_p = BeautifulSoup(content_prob, 'html.parser')
             testo_p = soup_p.get_text()
@@ -119,8 +125,8 @@ async def scarica_dati_live_playwright():
                     continue
 
                 try:
-                    await page.goto(url, wait_until="domcontentloaded", timeout=10000)
-                    await page.wait_for_timeout(1000)
+                    # Timeout a 5 secondi per singola pagina per velocizzare ed evitare blocchi
+                    await page.goto(url, wait_until="domcontentloaded", timeout=5000)
                     html_scheda = await page.content()
                     soup_s = BeautifulSoup(html_scheda, 'html.parser')
                     txt = soup_s.get_text()
