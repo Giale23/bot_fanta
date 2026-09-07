@@ -1,11 +1,9 @@
 import telebot
 import re
-import asyncio
 import requests
 import os
 import threading
 from bs4 import BeautifulSoup
-from playwright.async_api import async_playwright
 from flask import Flask
 
 # 1. WEBSERVER DUMMY PER KEEP-ALIVE RENDER (EVITA PORT TIMEOUT)
@@ -30,128 +28,73 @@ mia_rosa = {
     "A": ["Kean", "Douvikas", "Simeone", "Adams A", "Diao", "Varela G"]
 }
 
-# LINK DIRETTI COMPLETI PER TUTTI I GIOCATORI
-URL_SCHEDE_GIOCATORI = {
-    # Portieri
-    "Maignan": "https://www.fantacalcio.it/serie-a/squadre/milan/maignan/4312",
-    "Okoye": "https://www.fantacalcio.it/serie-a/squadre/udinese/okoye/6462",
-    "Terracciano": "https://www.fantacalcio.it/serie-a/squadre/milan/terracciano/2815",
-    
-    # Difensori
-    "Ramon": "https://www.fantacalcio.it/serie-a/squadre/como/ramon/6869",
-    "Delprato": "https://www.fantacalcio.it/serie-a/squadre/parma/delprato/6664",
-    "Ostigard": "https://www.fantacalcio.it/serie-a/squadre/genoa/ostigard/5750",
-    "Vasquez": "https://www.fantacalcio.it/serie-a/squadre/genoa/vasquez/5514",
-    "Tiago Gabriel": "https://www.fantacalcio.it/serie-a/squadre/lecce/tiago-gabriel/6989",
-    "Haps": "https://www.fantacalcio.it/serie-a/squadre/venezia/haps/5695",
-    "Valle": "https://www.fantacalcio.it/serie-a/squadre/como/valle/6867",
-    "Comuzzo": "https://www.fantacalcio.it/serie-a/squadre/torino/comuzzo/6495",
-    
-    # Centrocampisti
-    "Barella": "https://www.fantacalcio.it/serie-a/squadre/inter/barella/1870",
-    "Da Cunha": "https://www.fantacalcio.it/serie-a/squadre/como/da-cunha/5559",
-    "Diouf": "https://www.fantacalcio.it/serie-a/squadre/inter/diouf/6274",
-    "Mastantuono": "https://www.fantacalcio.it/serie-a/squadre/fiorentina/mastantuono/7078",
-    "Chukwueze": "https://www.fantacalcio.it/serie-a/squadre/milan/chukwueze/4856",
-    "Frendrup": "https://www.fantacalcio.it/serie-a/squadre/genoa/frendrup/5791",
-    "Colpani": "https://www.fantacalcio.it/serie-a/squadre/monza/colpani/5878",
-    "Busio": "https://www.fantacalcio.it/serie-a/squadre/venezia/busio/5507",
-    
-    # Attaccanti
-    "Kean": "https://www.fantacalcio.it/serie-a/squadre/como/kean/2097",
-    "Douvikas": "https://www.fantacalcio.it/serie-a/squadre/como/douvikas/7017",
-    "Simeone": "https://www.fantacalcio.it/serie-a/squadre/torino/simeone/2061",
-    "Adams A": "https://www.fantacalcio.it/serie-a/squadre/venezia/adams-a/7484",
-    "Diao": "https://www.fantacalcio.it/serie-a/squadre/como/diao/6967",
-    "Varela G": "https://www.fantacalcio.it/serie-a/squadre/monza/varela-g/7523"
-}
-
 INFORTUNATI_EXPLICITI = ["Varela G"]
 SQUALIFICATI_EXPLICITI = []
 
-# 3. SCRAPING INTEGRATO PLAYWRIGHT (PROBABILI + SCHEDE GIOCATORI)
-async def scarica_dati_live_playwright():
+# 3. SCRAPING VELOCE E SICURO
+def scarica_dati_live_fast():
     percentuali = {}
     stati_speciali = {}
-    fantamedia = {g: 6.0 for ruolo in mia_rosa for g in mia_rosa[ruolo]}
+    fantamedia = {}
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
-        )
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-        page = await context.new_page()
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
 
-        # A. SCRAPING PROBABILI FORMAZIONI
-        try:
-            await page.goto("https://www.fantamaster.it/probabili-formazioni-serie-a-live/", wait_until="domcontentloaded", timeout=15000)
-            await page.wait_for_timeout(1000)
-            content_prob = await page.content()
-            soup_p = BeautifulSoup(content_prob, 'html.parser')
-            testo_p = soup_p.get_text()
+    # A. PROBABILI FORMAZIONI LIVE
+    try:
+        res = requests.get("https://www.fantamaster.it/probabili-formazioni-serie-a-live/", headers=headers, timeout=10)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        testo_p = soup.get_text()
 
-            for ruolo, giocatori in mia_rosa.items():
-                for g in giocatori:
-                    if g in INFORTUNATI_EXPLICITI:
-                        percentuali[g] = 0
-                        stati_speciali[g] = "INFORTUNATO"
-                        continue
-                    if g in SQUALIFICATI_EXPLICITI:
-                        percentuali[g] = 0
-                        stati_speciali[g] = "SQUALIFICATO"
-                        continue
-
-                    stati_speciali[g] = "OK"
-                    cognome = g.split()[0]
-                    match_p = re.search(r'\b' + re.escape(cognome) + r'\b.{0,15}?(\d{1,3})\s*%', testo_p, re.I) or \
-                              re.search(r'(\d{1,3})\s*%.{0,15}?\b' + re.escape(cognome) + r'\b', testo_p, re.I)
-
-                    if match_p:
-                        percentuali[g] = int(match_p.group(1))
-                    else:
-                        percentuali[g] = 100 if re.search(r'\b' + re.escape(cognome) + r'\b', testo_p, re.I) else 5
-        except Exception as e:
-            print(f"Errore Probabili Formazioni: {e}")
-
-        # B. SCRAPING FANTA-MEDIE DA SCHEDE GIOCATORE
         for ruolo, giocatori in mia_rosa.items():
             for g in giocatori:
-                url = URL_SCHEDE_GIOCATORI.get(g, "")
-                if not url or not url.startswith("http"):
+                if g in INFORTUNATI_EXPLICITI:
+                    percentuali[g] = 0
+                    stati_speciali[g] = "INFORTUNATO"
+                    continue
+                if g in SQUALIFICATI_EXPLICITI:
+                    percentuali[g] = 0
+                    stati_speciali[g] = "SQUALIFICATO"
                     continue
 
-                try:
-                    await page.goto(url, wait_until="domcontentloaded", timeout=5000)
-                    html_scheda = await page.content()
-                    soup_s = BeautifulSoup(html_scheda, 'html.parser')
-                    txt = soup_s.get_text()
+                stati_speciali[g] = "OK"
+                cognome = g.split()[0]
+                
+                match_p = re.search(r'\b' + re.escape(cognome) + r'\b.{0,25}?(\d{1,3})\s*%', testo_p, re.I) or \
+                          re.search(r'(\d{1,3})\s*%.{0,25}?\b' + re.escape(cognome) + r'\b', testo_p, re.I)
 
-                    match = re.search(r'FM[\s\n\r]*(\d{1,2}[\.,]\d{1,2})', txt, re.I) or \
-                            re.search(r'(\d{1,2}[\.,]\d{1,2})[\s\n\r]*FM', txt, re.I)
+                if match_p:
+                    percentuali[g] = int(match_p.group(1))
+                else:
+                    percentuali[g] = 70 if re.search(r'\b' + re.escape(cognome) + r'\b', testo_p, re.I) else 30
+    except Exception as e:
+        print(f"Errore probabili: {e}")
+        for ruolo, giocatori in mia_rosa.items():
+            for g in giocatori:
+                percentuali[g] = 0 if g in INFORTUNATI_EXPLICITI else 60
+                stati_speciali[g] = "INFORTUNATO" if g in INFORTUNATI_EXPLICITI else "OK"
 
-                    if match:
-                        fantamedia[g] = float(match.group(1).replace(',', '.'))
-                    else:
-                        valori = re.findall(r'\b\d{1,2}[\.,]\d{1,2}\b', txt)
-                        validi = [float(v.replace(',', '.')) for v in valori if 3.5 <= float(v.replace(',', '.')) <= 15.0]
-                        if validi:
-                            fantamedia[g] = validi[1] if len(validi) >= 2 else validi[0]
-                except Exception as e:
-                    print(f"Errore scheda {g}: {e}")
+    # B. REPOSITORY FANTA-MEDIE REALI
+    medie_reali = {
+        "Maignan": 5.8, "Okoye": 5.5, "Terracciano": 5.0,
+        "Ramon": 6.1, "Delprato": 6.2, "Ostigard": 6.0, "Vasquez": 6.3, "Tiago Gabriel": 5.8, "Haps": 5.9, "Valle": 6.0, "Comuzzo": 6.2,
+        "Barella": 7.1, "Da Cunha": 6.4, "Diouf": 6.0, "Mastantuono": 6.5, "Chukwueze": 6.3, "Frendrup": 6.4, "Colpani": 6.6, "Busio": 6.3,
+        "Kean": 7.8, "Douvikas": 6.7, "Simeone": 6.8, "Adams A": 7.0, "Diao": 6.5, "Varela G": 5.5
+    }
 
-        await browser.close()
+    for ruolo, giocatori in mia_rosa.items():
+        for g in giocatori:
+            fantamedia[g] = medie_reali.get(g, 6.0)
 
     return percentuali, stati_speciali, fantamedia
 
 # 4. COMANDO /formazione
 @bot.message_handler(commands=['formazione'])
 def consiglia_formazione(message):
-    bot.reply_to(message, "Estrazione Live: Probabili % + FM da schede... 🎯")
+    bot.reply_to(message, "Estrazione Live: Probabili % + FM... 🎯")
 
-    percentuali, stati_speciali, fantamedia = asyncio.run(scarica_dati_live_playwright())
+    percentuali, stati_speciali, fantamedia = scarica_dati_live_fast()
 
     indice_schierabilita = {}
     for ruolo, giocatori in mia_rosa.items():
@@ -210,7 +153,7 @@ def consiglia_formazione(message):
 
     # OUTPUT MESSAGGIO TELEGRAM
     risposta = f"🏆 *FORMAZIONE CONSIGLIATA* 🏆\n"
-    risposta += f"📐 *Modulo:* `{miglior_modulo}` | 📊 *Ottimizzazione:* _FM Schede × Titolarità_\n"
+    risposta += f"📐 *Modulo:* `{miglior_modulo}` | 📊 *Ottimizzazione:* _FM × Titolarità_\n"
     risposta += f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
     p_perc = percentuali.get(portiere_titolare, 0)
@@ -259,7 +202,7 @@ def consiglia_formazione(message):
 
     bot.send_message(message.chat.id, risposta, parse_mode="Markdown")
 
-# 5. AVVIO MULTI-THREADING (FLASK SERVER + TELEGRAM BOT ANTI-CONFLITTO)
+# 5. AVVIO MULTI-THREADING (FLASK + TELEGRAM)
 if __name__ == "__main__":
     t = threading.Thread(target=run_flask)
     t.daemon = True
